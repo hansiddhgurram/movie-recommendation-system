@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from src.popularity import popularity_recommender
 from src.content_based import build_genre_matrix, content_based_recommender
 from src.collaborative import create_user_item_matrix, user_based_recommender
+from src.matrix_factorization import train_svd, svd_recommender
 
 # -------------------- PAGE CONFIG --------------------
 st.set_page_config(
@@ -17,7 +19,7 @@ st.markdown(
     """
     <h1 style="text-align:center;">🎬 Movie Recommendation System</h1>
     <p style="text-align:center; font-size:16px;">
-    Interactive movie recommendations using Machine Learning
+    End-to-end Movie Recommendations using Machine Learning
     </p>
     <hr>
     """,
@@ -63,7 +65,8 @@ recommender_type = st.sidebar.radio(
     [
         "🔥 Popularity-Based",
         "🎯 Content-Based",
-        "👥 Collaborative Filtering"
+        "👥 Collaborative Filtering",
+        "🧠 Matrix Factorization (SVD)"
     ]
 )
 
@@ -72,39 +75,26 @@ st.sidebar.markdown(
     """
     **About**
     - Dataset: MovieLens 100K  
-    - Techniques: Similarity-based ML  
+    - ML: Similarity + Matrix Factorization  
     - Tools: Python, Scikit-learn, Streamlit  
     """
 )
 
-# -------------------- POPULARITY BASED --------------------
+# -------------------- POPULARITY --------------------
 if recommender_type == "🔥 Popularity-Based":
     st.subheader("🔥 Popular Movies")
 
-    st.write(
-        "Recommends movies with high average ratings and sufficient number of ratings."
-    )
-
     col1, col2 = st.columns(2)
-
     with col1:
-        min_ratings = st.slider(
-            "Minimum number of ratings",
-            10, 200, 50
-        )
-
+        min_ratings = st.slider("Minimum ratings", 10, 200, 50)
     with col2:
-        top_n = st.slider(
-            "Number of recommendations",
-            5, 20, 10
-        )
+        top_n = st.slider("Top N movies", 5, 20, 10)
 
     with st.spinner("Computing popular movies..."):
         df = ratings.merge(
             movies[["movie_id", "title"]],
             on="movie_id"
         )
-
         recommendations = popularity_recommender(
             df,
             top_n=top_n,
@@ -112,18 +102,11 @@ if recommender_type == "🔥 Popularity-Based":
         )
 
     st.success("Recommendations ready!")
-    st.dataframe(
-        recommendations.reset_index(drop=True),
-        use_container_width=True
-    )
+    st.dataframe(recommendations, use_container_width=True)
 
 # -------------------- CONTENT BASED --------------------
 elif recommender_type == "🎯 Content-Based":
-    st.subheader("🎯 Find Similar Movies")
-
-    st.write(
-        "Select a movie and get recommendations based on genre similarity."
-    )
+    st.subheader("🎯 Similar Movies")
 
     selected_movie = st.selectbox(
         "Choose a movie",
@@ -146,13 +129,9 @@ elif recommender_type == "🎯 Content-Based":
         st.success(f"Movies similar to **{selected_movie}**")
         st.table(recommendations)
 
-# -------------------- COLLABORATIVE FILTERING --------------------
-else:
-    st.subheader("👥 Personalized Recommendations")
-
-    st.write(
-        "Enter a user ID to get personalized recommendations based on similar users."
-    )
+# -------------------- USER-BASED CF --------------------
+elif recommender_type == "👥 Collaborative Filtering":
+    st.subheader("👥 Personalized Recommendations (User-Based)")
 
     user_id = st.number_input(
         "User ID (1–943)",
@@ -174,6 +153,46 @@ else:
             )
 
         st.success(f"Recommendations for User {user_id}")
+        st.table(recommendations)
+
+# -------------------- MATRIX FACTORIZATION (SVD) --------------------
+else:
+    st.subheader("🧠 Personalized Recommendations (SVD)")
+
+    user_id = st.number_input(
+        "User ID (1–943)",
+        min_value=1,
+        max_value=943,
+        value=1,
+        step=1
+    )
+
+    n_components = st.slider(
+        "Number of latent factors",
+        min_value=5,
+        max_value=50,
+        value=20
+    )
+
+    if st.button("Get SVD Recommendations"):
+        with st.spinner("Training SVD model and generating recommendations..."):
+            user_item_matrix = create_user_item_matrix(ratings)
+
+            user_factors, item_factors, _ = train_svd(
+                user_item_matrix,
+                n_components=n_components
+            )
+
+            recommendations = svd_recommender(
+                user_id=user_id,
+                user_item_matrix=user_item_matrix,
+                user_factors=user_factors,
+                item_factors=item_factors,
+                movies_df=movies[["movie_id", "title"]],
+                top_n=10
+            )
+
+        st.success(f"SVD Recommendations for User {user_id}")
         st.table(recommendations)
 
 # -------------------- FOOTER --------------------
